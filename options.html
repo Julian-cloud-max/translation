@@ -19,9 +19,21 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       padding: 32px;
     }
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      flex-shrink: 0;
+    }
     h1 {
       font-size: 22px;
-      margin-bottom: 24px;
+      margin: 0;
       background: linear-gradient(135deg, #4f46e5, #7c3aed);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -152,7 +164,10 @@
 </head>
 <body>
   <div class="container">
-    <h1>QuickTranslate 设置</h1>
+    <div class="page-header">
+      <img class="brand-logo" src="icons/icon128.png" alt="QuickTranslate logo">
+      <h1>QuickTranslate 设置</h1>
+    </div>
 
     <h2>翻译服务</h2>
     <div class="field">
