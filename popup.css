@@ -39,7 +39,8 @@ body {
 .status-bar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 8px;
   padding: 8px 12px;
   background: #f3f4f6;
   border-radius: 8px;
@@ -49,11 +50,14 @@ body {
 
 #statusText {
   color: #6b7280;
+  min-width: 0;
+  line-height: 1.4;
 }
 
 #progressText {
   color: #4f46e5;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .actions {
@@ -136,6 +140,22 @@ body {
 .setting-row select:focus,
 .setting-row input:focus {
   border-color: #4f46e5;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-row input {
+  width: 15px;
+  height: 15px;
+  accent-color: #4f46e5;
 }
 
 .deepseek-config {

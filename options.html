@@ -60,6 +60,12 @@
       outline: none;
       transition: border-color 0.15s;
     }
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+      line-height: 1.5;
+      font-family: inherit;
+    }
     select:focus, input:focus, textarea:focus {
       border-color: #4f46e5;
     }
@@ -84,6 +90,22 @@
     .btn-save:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      padding: 10px 18px;
+      background: #f9fafb;
+      color: #374151;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .btn-secondary:hover {
+      background: #f3f4f6;
     }
     .saved-msg {
       display: none;
@@ -111,6 +133,20 @@
     .info-box strong {
       display: block;
       margin-bottom: 4px;
+    }
+    .checkbox-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #374151;
+      cursor: pointer;
+      user-select: none;
+    }
+    .checkbox-field input {
+      width: 16px;
+      height: 16px;
+      accent-color: #4f46e5;
     }
   </style>
 </head>
@@ -180,10 +216,64 @@
     <div class="field">
       <label for="translationStyle">翻译显示样式</label>
       <select id="translationStyle">
-        <option value="below">原文下方显示（推荐）</option>
+        <option value="replace">替换原文（推荐，悬停显示原文）</option>
+        <option value="below">原文下方显示</option>
         <option value="inline">行内显示</option>
-        <option value="replace">替换原文（悬停显示原文）</option>
       </select>
+    </div>
+
+    <div class="field">
+      <label for="translateMode">网页翻译范围</label>
+      <select id="translateMode">
+        <option value="lazy">懒加载翻译（推荐，先翻译可视区域）</option>
+        <option value="all">整页一次翻译</option>
+      </select>
+      <div class="hint">懒加载适合长页面，可以减少等待和无效请求</div>
+    </div>
+
+    <label class="checkbox-field" for="selectionTranslateEnabled">
+      <input type="checkbox" id="selectionTranslateEnabled">
+      <span>启用划译浮层</span>
+    </label>
+
+    <div class="divider"></div>
+
+    <h2>DeepSeek 增强</h2>
+    <div class="field">
+      <label for="customStyle">翻译风格</label>
+      <textarea id="customStyle" placeholder="例如：保持专业、简洁，保留产品名和技术术语，不要口语化"></textarea>
+      <div class="hint">仅 DeepSeek 生效，用于控制语气、术语保留、行业风格</div>
+    </div>
+
+    <div class="field">
+      <label for="glossary">术语表</label>
+      <textarea id="glossary" placeholder="每行一个术语，例如：&#10;cache = 缓存&#10;prompt = 提示词&#10;service worker = 服务工作线程"></textarea>
+      <div class="hint">仅 DeepSeek 生效，建议使用“原文 = 译文”的格式</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h2>站点规则</h2>
+    <div class="field">
+      <label for="siteRuleMode">规则模式</label>
+      <select id="siteRuleMode">
+        <option value="blacklist">黑名单：列表中的站点禁用翻译</option>
+        <option value="whitelist">白名单：只允许列表中的站点翻译</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="siteRules">站点列表</label>
+      <textarea id="siteRules" placeholder="每行一个域名，例如：&#10;example.com&#10;docs.example.com"></textarea>
+      <div class="hint">填写域名即可，子域名会自动匹配主域名规则</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h2>缓存</h2>
+    <div class="field">
+      <button class="btn-secondary" id="btnClearCache" type="button">清除翻译缓存</button>
+      <div class="hint">清除后下次会重新请求翻译服务</div>
     </div>
 
     <button class="btn-save" id="btnSave">保存设置</button>

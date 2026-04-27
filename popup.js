@@ -3,6 +3,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnRestore = document.getElementById('btnRestore');
   const providerSelect = document.getElementById('provider');
   const targetLangSelect = document.getElementById('targetLang');
+  const translateModeSelect = document.getElementById('translateMode');
+  const selectionTranslateEnabledInput = document.getElementById('selectionTranslateEnabled');
   const apiKeyInput = document.getElementById('apiKey');
   const deepseekConfig = document.getElementById('deepseekConfig');
   const statusText = document.getElementById('statusText');
@@ -10,9 +12,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnOptions = document.getElementById('btnOptions');
 
   // Load saved settings
-  chrome.storage.local.get(['provider', 'targetLang', 'apiKey'], (data) => {
+  chrome.storage.local.get([
+    'provider',
+    'targetLang',
+    'translateMode',
+    'selectionTranslateEnabled',
+    'apiKey'
+  ], (data) => {
     if (data.provider) providerSelect.value = data.provider;
     if (data.targetLang) targetLangSelect.value = data.targetLang;
+    if (data.translateMode) translateModeSelect.value = data.translateMode;
+    selectionTranslateEnabledInput.checked = data.selectionTranslateEnabled !== false;
     if (data.apiKey) apiKeyInput.value = data.apiKey;
     toggleDeepseekConfig();
   });
@@ -25,6 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   targetLangSelect.addEventListener('change', () => {
     chrome.storage.local.set({ targetLang: targetLangSelect.value });
+  });
+
+  translateModeSelect.addEventListener('change', () => {
+    chrome.storage.local.set({ translateMode: translateModeSelect.value });
+  });
+
+  selectionTranslateEnabledInput.addEventListener('change', () => {
+    chrome.storage.local.set({ selectionTranslateEnabled: selectionTranslateEnabledInput.checked });
   });
 
   apiKeyInput.addEventListener('change', () => {
@@ -98,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnTranslate.addEventListener('click', async () => {
     const provider = providerSelect.value;
     const targetLang = targetLangSelect.value;
+    const translateMode = translateModeSelect.value;
     const apiKey = apiKeyInput.value;
 
     if (provider === 'deepseek' && !apiKey.trim()) {
@@ -130,6 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
       type: 'translate',
       provider,
       targetLang,
+      translateMode,
       apiKey
     }, (response) => {
       document.body.classList.remove('loading');
@@ -141,7 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (response && response.success) {
-        statusText.textContent = `翻译完成 (${response.count} 段)`;
+        const lazyText = response.pending ? `，剩余 ${response.pending} 段滚动时翻译` : '';
+        statusText.textContent = `翻译完成 (${response.count} 段${lazyText})`;
         btnRestore.disabled = false;
       } else if (response && response.error) {
         statusText.textContent = '错误: ' + response.error;

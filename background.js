@@ -2,7 +2,9 @@
 
 const GOOGLE_BATCH_SIZE = 10;
 const DEEPSEEK_BATCH_SIZE = 15;
-const MAX_CONCURRENT = 5;
+const CACHE_PREFIX = 'qt_cache:';
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 600;
 
 // Translation dispatch
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -12,29 +14,139 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true; // Keep message channel open for async response
   }
+
+  if (msg.type === 'clearCache') {
+    clearTranslationCache()
+      .then(count => sendResponse({ success: true, count }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
 
 async function handleTranslate(msg, sender) {
-  const { segments, provider, targetLang, apiKey } = msg;
+  const { segments, provider, targetLang, apiKey, glossary = '', customStyle = '' } = msg;
 
   if (!segments || segments.length === 0) {
     return { success: false, error: 'No translatable content found' };
   }
 
   try {
-    let translations;
-    if (provider === 'google') {
-      translations = await translateGoogle(segments, targetLang, sender);
-    } else if (provider === 'deepseek') {
-      translations = await translateDeepseek(segments, targetLang, apiKey, sender);
-    } else {
+    if (provider !== 'google' && provider !== 'deepseek') {
       return { success: false, error: 'Unknown provider' };
     }
 
+    const translations = await translateWithCache(
+      segments,
+      provider,
+      targetLang,
+      apiKey,
+      sender,
+      { glossary, customStyle }
+    );
     return { success: true, translations };
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+async function translateWithCache(segments, provider, targetLang, apiKey, sender, options = {}) {
+  const results = new Array(segments.length);
+  const misses = [];
+  const missIndexes = [];
+
+  const cacheKeys = segments.map(seg => buildCacheKey(provider, targetLang, seg.text, options));
+  const cached = await chrome.storage.local.get(cacheKeys);
+
+  for (let i = 0; i < segments.length; i++) {
+    const item = cached[cacheKeys[i]];
+    if (item && Date.now() - item.ts < CACHE_TTL && item.value) {
+      results[i] = item.value;
+    } else {
+      misses.push(segments[i]);
+      missIndexes.push(i);
+    }
+  }
+
+  if (misses.length === 0) {
+    sendProgress(sender, `${segments.length}/${segments.length} (缓存)`);
+    return results;
+  }
+
+  if (results.some(Boolean)) {
+    sendProgress(sender, `${results.filter(Boolean).length}/${segments.length} (缓存)`);
+  }
+
+  const fresh = provider === 'google'
+    ? await translateGoogle(misses, targetLang, sender)
+    : await translateDeepseek(misses, targetLang, apiKey, sender, options);
+
+  const cacheUpdates = {};
+  for (let i = 0; i < misses.length; i++) {
+    const originalIndex = missIndexes[i];
+    const translated = fresh[i];
+    results[originalIndex] = translated;
+
+    if (isCacheableTranslation(translated)) {
+      cacheUpdates[cacheKeys[originalIndex]] = {
+        value: translated,
+        ts: Date.now()
+      };
+    }
+  }
+
+  if (Object.keys(cacheUpdates).length > 0) {
+    await chrome.storage.local.set(cacheUpdates);
+    cleanupCache().catch(() => {});
+  }
+
+  return results;
+}
+
+function isCacheableTranslation(text) {
+  return text &&
+    !text.startsWith('[Translation failed') &&
+    !text.startsWith('[DeepSeek error');
+}
+
+function buildCacheKey(provider, targetLang, text, options = {}) {
+  const optionKey = provider === 'deepseek'
+    ? hashText(`${options.glossary || ''}\n${options.customStyle || ''}`)
+    : 'default';
+  return `${CACHE_PREFIX}${provider}:${targetLang}:${optionKey}:${String(text || '').length}:${hashText(text)}`;
+}
+
+function hashText(text) {
+  let hash = 5381;
+  const value = String(text || '');
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+async function cleanupCache() {
+  const all = await chrome.storage.local.get(null);
+  const entries = Object.entries(all)
+    .filter(([key]) => key.startsWith(CACHE_PREFIX))
+    .sort((a, b) => (b[1]?.ts || 0) - (a[1]?.ts || 0));
+
+  const now = Date.now();
+  const stale = entries
+    .filter(([, value], index) => index >= MAX_CACHE_ENTRIES || now - (value?.ts || 0) > CACHE_TTL)
+    .map(([key]) => key);
+
+  if (stale.length > 0) {
+    await chrome.storage.local.remove(stale);
+  }
+}
+
+async function clearTranslationCache() {
+  const all = await chrome.storage.local.get(null);
+  const keys = Object.keys(all).filter(key => key.startsWith(CACHE_PREFIX));
+  if (keys.length > 0) {
+    await chrome.storage.local.remove(keys);
+  }
+  return keys.length;
 }
 
 // Google Translate (Free) - uses the public endpoint
@@ -89,7 +201,7 @@ async function translateGoogleSingle(text, targetLang) {
 }
 
 // DeepSeek API - batch translation with high quality
-async function translateDeepseek(segments, targetLang, apiKey, sender) {
+async function translateDeepseek(segments, targetLang, apiKey, sender, options = {}) {
   const langMap = {
     'zh-CN': '简体中文', 'zh-TW': '繁體中文', 'en': 'English',
     'ja': '日本語', 'ko': '한국어', 'fr': 'Français',
@@ -103,12 +215,20 @@ async function translateDeepseek(segments, targetLang, apiKey, sender) {
     const batch = batches[i];
     const startIndex = i * DEEPSEEK_BATCH_SIZE;
 
-    // Build numbered segments
-    const numberedText = batch.map((seg, idx) =>
-      `[${idx + 1}] ${seg.text}`
-    ).join('\n\n');
+    const payload = batch.map((seg, idx) => ({
+      id: idx + 1,
+      text: seg.text
+    }));
 
-    const prompt = `Translate the following text to ${langName}. Output ONLY the translations, keeping the [number] format. Preserve paragraph breaks and line breaks within each numbered segment. Maintain the original meaning and tone accurately. If a segment is already in ${langName}, output it unchanged.\n\n${numberedText}`;
+    const glossaryText = normalizeInstructionBlock(options.glossary);
+    const styleText = normalizeInstructionBlock(options.customStyle);
+    const glossaryInstruction = glossaryText
+      ? `\nUse this glossary exactly when applicable:\n${glossaryText}`
+      : '';
+    const styleInstruction = styleText
+      ? `\nFollow this translation style requirement:\n${styleText}`
+      : '';
+    const prompt = `Translate each item in this JSON array to ${langName}. Return ONLY valid JSON in this exact shape: {"translations":[{"id":1,"text":"translated text"}]}. Preserve paragraph breaks and line breaks inside each text field. If an item is already in ${langName}, return it unchanged.${glossaryInstruction}${styleInstruction}\n\n${JSON.stringify(payload)}`;
 
     try {
       const response = await fetch('https://api.deepseek.com/chat/completions', {
@@ -122,7 +242,7 @@ async function translateDeepseek(segments, targetLang, apiKey, sender) {
           messages: [
             {
               role: 'system',
-              content: 'You are a professional translator. Output only translations with [number] format. No explanations.'
+              content: 'You are a professional translator. Output only valid JSON. No markdown, no explanations.'
             },
             {
               role: 'user',
@@ -142,8 +262,7 @@ async function translateDeepseek(segments, targetLang, apiKey, sender) {
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content || '';
 
-      // Parse numbered translations from response
-      const translations = parseNumberedTranslations(content, batch.length);
+      const translations = parseDeepseekTranslations(content, batch.length);
 
       for (let j = 0; j < batch.length; j++) {
         results[startIndex + j] = translations[j] || batch[j].text;
@@ -161,6 +280,66 @@ async function translateDeepseek(segments, targetLang, apiKey, sender) {
   }
 
   return results;
+}
+
+function normalizeInstructionBlock(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(0, 80)
+    .join('\n');
+}
+
+function parseDeepseekTranslations(content, expectedCount) {
+  const parsed = parseJsonTranslations(content, expectedCount);
+  if (parsed.filter(Boolean).length > 0) {
+    return parsed;
+  }
+
+  return parseNumberedTranslations(content, expectedCount);
+}
+
+function parseJsonTranslations(content, expectedCount) {
+  const results = [];
+
+  try {
+    const jsonText = extractJsonObject(content);
+    const data = JSON.parse(jsonText);
+    const translations = Array.isArray(data) ? data : data.translations;
+    if (!Array.isArray(translations)) return results;
+
+    for (const item of translations) {
+      const id = Number(item.id);
+      const text = typeof item.text === 'string' ? item.text.trim() : '';
+      if (id >= 1 && id <= expectedCount && text) {
+        results[id - 1] = text;
+      }
+    }
+  } catch (e) {
+    // Fall through to numbered parser.
+  }
+
+  return results;
+}
+
+function extractJsonObject(content) {
+  const text = String(content || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/g, '')
+    .trim();
+
+  if (text.startsWith('[') && text.endsWith(']')) {
+    return text;
+  }
+
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) {
+    return text.slice(first, last + 1);
+  }
+  return text;
 }
 
 // Parse translations from DeepSeek's numbered response

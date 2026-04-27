@@ -57,6 +57,19 @@
           <option value="ru">Русский</option>
         </select>
       </div>
+
+      <div class="setting-row">
+        <label for="translateMode">网页翻译范围</label>
+        <select id="translateMode">
+          <option value="lazy">懒加载翻译（推荐）</option>
+          <option value="all">整页一次翻译</option>
+        </select>
+      </div>
+
+      <label class="checkbox-row" for="selectionTranslateEnabled">
+        <input type="checkbox" id="selectionTranslateEnabled">
+        <span>启用划译</span>
+      </label>
     </div>
 
     <div class="deepseek-config" id="deepseekConfig" style="display:none;">
