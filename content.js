@@ -29,8 +29,8 @@ let translatedElements = [];
 let selectionBubble = null;
 let selectedTextForBubble = '';
 let selectionTranslateEnabled = true;
-let selectionBubblePinned = false;
 let selectionBubbleDragging = false;
+let selectionBubbleDragTarget = null;
 let selectionBubbleDragOffset = { x: 0, y: 0 };
 let currentTranslateSettings = null;
 let lazyObserver = null;
@@ -554,7 +554,6 @@ function initSelectionTranslate() {
 
   document.addEventListener('mouseup', (event) => {
     if (event.target?.closest?.('.qt-selection-bubble')) return;
-    if (selectionBubblePinned) return;
     setTimeout(showSelectionBubble, 0);
   });
 
@@ -563,17 +562,15 @@ function initSelectionTranslate() {
       hideSelectionBubble(true);
       return;
     }
-    if (selectionBubblePinned) return;
     showSelectionBubble();
   });
 
   document.addEventListener('scroll', (event) => {
     if (selectionBubble?.contains(event.target)) return;
-    if (selectionBubblePinned) return;
     hideSelectionBubble();
   }, true);
   window.addEventListener('resize', () => {
-    if (!selectionBubblePinned) hideSelectionBubble();
+    hideSelectionBubble();
   });
   document.addEventListener('mousemove', dragSelectionBubble);
   document.addEventListener('mouseup', stopDraggingSelectionBubble);
@@ -624,7 +621,6 @@ async function showSelectionBubble() {
   }
 
   selectionBubble.classList.remove('qt-selection-bubble-result', 'qt-selection-bubble-error');
-  selectionBubble.classList.toggle('qt-selection-pinned', selectionBubblePinned);
   selectionBubble.innerHTML = '';
   const button = document.createElement('button');
   button.type = 'button';
@@ -633,9 +629,7 @@ async function showSelectionBubble() {
   button.addEventListener('click', translateSelectedText);
   selectionBubble.appendChild(button);
 
-  if (!selectionBubblePinned) {
-    positionSelectionBubble(rect);
-  }
+  positionSelectionBubble(rect);
   selectionBubble.hidden = false;
 }
 
@@ -652,7 +646,6 @@ function createSelectionBubble() {
   bubble.addEventListener('mousedown', event => {
     if (event.target.closest('button')) return;
     event.preventDefault();
-    if (selectionBubblePinned) startDraggingSelectionBubble(event);
   });
   return bubble;
 }
@@ -714,7 +707,6 @@ function renderSelectionBubbleState(text, isError = false) {
   selectionBubble.innerHTML = '';
   selectionBubble.classList.add('qt-selection-bubble-result');
   selectionBubble.classList.toggle('qt-selection-bubble-error', isError);
-  selectionBubble.classList.toggle('qt-selection-pinned', selectionBubblePinned);
 
   const content = document.createElement('div');
   content.className = 'qt-selection-result';
@@ -736,8 +728,8 @@ function renderSelectionBubbleState(text, isError = false) {
   const pin = document.createElement('button');
   pin.type = 'button';
   pin.className = 'qt-selection-pin';
-  pin.textContent = selectionBubblePinned ? '取消固定' : '固定';
-  pin.addEventListener('click', () => toggleSelectionBubblePin(pin));
+  pin.textContent = '固定';
+  pin.addEventListener('click', () => pinSelectionBubble(text, isError));
 
   selectionBubble.append(content, copy, pin, close);
 }
@@ -771,27 +763,72 @@ function fallbackCopyText(text) {
   textarea.remove();
 }
 
-function toggleSelectionBubblePin(button) {
-  selectionBubblePinned = !selectionBubblePinned;
-  selectionBubble.classList.toggle('qt-selection-pinned', selectionBubblePinned);
-  button.textContent = selectionBubblePinned ? '取消固定' : '固定';
+function pinSelectionBubble(text, isError) {
+  if (!selectionBubble) return;
+
+  const pinned = createPinnedSelectionCard(text, isError);
+  const rect = selectionBubble.getBoundingClientRect();
+  pinned.style.width = `${selectionBubble.offsetWidth}px`;
+  pinned.style.left = `${rect.left + window.scrollX}px`;
+  pinned.style.top = `${rect.top + window.scrollY}px`;
+  document.documentElement.appendChild(pinned);
+  hideSelectionBubble(true);
 }
 
-function startDraggingSelectionBubble(event) {
-  if (!selectionBubble) return;
+function createPinnedSelectionCard(text, isError) {
+  const pinned = document.createElement('div');
+  pinned.className = 'qt-selection-bubble qt-selection-bubble-result qt-selection-pinned';
+  pinned.classList.toggle('qt-selection-bubble-error', isError);
+
+  const content = document.createElement('div');
+  content.className = 'qt-selection-result';
+  content.textContent = text;
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'qt-selection-close';
+  close.textContent = '×';
+  close.setAttribute('aria-label', '关闭固定划译结果');
+  close.addEventListener('click', () => pinned.remove());
+
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'qt-selection-copy';
+  copy.textContent = '复制';
+  copy.addEventListener('click', () => copySelectionResult(text, copy));
+
+  const pin = document.createElement('button');
+  pin.type = 'button';
+  pin.className = 'qt-selection-pin';
+  pin.textContent = '已固定';
+  pin.addEventListener('click', () => pinned.remove());
+
+  pinned.addEventListener('mousedown', event => {
+    if (event.target.closest('button')) return;
+    event.preventDefault();
+    startDraggingSelectionBubble(event, pinned);
+  });
+
+  pinned.append(content, copy, pin, close);
+  return pinned;
+}
+
+function startDraggingSelectionBubble(event, bubble = selectionBubble) {
+  if (!bubble) return;
   selectionBubbleDragging = true;
-  const rect = selectionBubble.getBoundingClientRect();
+  selectionBubbleDragTarget = bubble;
+  const rect = bubble.getBoundingClientRect();
   selectionBubbleDragOffset = {
     x: event.clientX - rect.left,
     y: event.clientY - rect.top
   };
-  selectionBubble.classList.add('qt-selection-dragging');
+  bubble.classList.add('qt-selection-dragging');
 }
 
 function dragSelectionBubble(event) {
-  if (!selectionBubbleDragging || !selectionBubble) return;
-  const width = selectionBubble.offsetWidth;
-  const height = selectionBubble.offsetHeight;
+  if (!selectionBubbleDragging || !selectionBubbleDragTarget) return;
+  const width = selectionBubbleDragTarget.offsetWidth;
+  const height = selectionBubbleDragTarget.offsetHeight;
   const left = Math.min(
     window.scrollX + window.innerWidth - width - 8,
     Math.max(window.scrollX + 8, event.clientX + window.scrollX - selectionBubbleDragOffset.x)
@@ -800,25 +837,25 @@ function dragSelectionBubble(event) {
     window.scrollY + window.innerHeight - height - 8,
     Math.max(window.scrollY + 8, event.clientY + window.scrollY - selectionBubbleDragOffset.y)
   );
-  selectionBubble.style.left = `${left}px`;
-  selectionBubble.style.top = `${top}px`;
+  selectionBubbleDragTarget.style.left = `${left}px`;
+  selectionBubbleDragTarget.style.top = `${top}px`;
 }
 
 function stopDraggingSelectionBubble() {
   if (!selectionBubbleDragging) return;
   selectionBubbleDragging = false;
-  selectionBubble?.classList.remove('qt-selection-dragging');
+  selectionBubbleDragTarget?.classList.remove('qt-selection-dragging');
+  selectionBubbleDragTarget = null;
 }
 
 function hideSelectionBubble(force = false) {
-  if (selectionBubblePinned && !force) return;
   if (selectionBubble) {
     selectionBubble.hidden = true;
   }
   if (force) {
-    selectionBubblePinned = false;
     selectionBubbleDragging = false;
-    selectionBubble?.classList.remove('qt-selection-pinned', 'qt-selection-dragging');
+    selectionBubbleDragTarget = null;
+    selectionBubble?.classList.remove('qt-selection-dragging');
   }
 }
 
