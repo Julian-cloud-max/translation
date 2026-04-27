@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "QuickTranslate - 网页即时翻译",
+  "version": "1.0.0",
+  "description": "一键翻译整个网页，双语对照显示。支持 Google 免费翻译和 DeepSeek API。",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "https://translate.googleapis.com/*",
+    "https://api.deepseek.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "QuickTranslate"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}

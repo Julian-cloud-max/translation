@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head><title>Generate Icons</title></head>
+<body style="padding:40px; font-family:sans-serif;">
+<h2>QuickTranslate Icon Generator</h2>
+<p>Click each link to download PNG icon files, then place them in the <code>icons/</code> folder.</p>
+<div id="output"></div>
+<script>
+const sizes = [16, 48, 128];
+const output = document.getElementById('output');
+
+sizes.forEach(size => {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, '#4f46e5');
+  grad.addColorStop(1, '#7c3aed');
+
+  // Rounded rect background
+  ctx.fillStyle = grad;
+  const r = size * 0.18;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(size - r, 0);
+  ctx.quadraticCurveTo(size, 0, size, r);
+  ctx.lineTo(size, size - r);
+  ctx.quadraticCurveTo(size, size, size - r, size);
+  ctx.lineTo(r, size);
+  ctx.quadraticCurveTo(0, size, 0, size - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // "QT" text
+  ctx.fillStyle = 'white';
+  ctx.font = `bold ${size * 0.4}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('QT', size * 0.4, size * 0.45);
+
+  // Checkmark accent
+  ctx.strokeStyle = '#a5b4fc';
+  ctx.lineWidth = Math.max(size * 0.06, 1.5);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(size * 0.62, size * 0.68);
+  ctx.lineTo(size * 0.73, size * 0.83);
+  ctx.lineTo(size * 0.92, size * 0.52);
+  ctx.stroke();
+
+  const div = document.createElement('div');
+  div.style.cssText = 'margin:24px 0;';
+
+  const img = document.createElement('img');
+  img.src = canvas.toDataURL('image/png');
+  img.width = Math.max(size, 64);
+  img.height = Math.max(size, 64);
+  img.style.cssText = 'border:1px solid #ddd; margin-right:16px; image-rendering:auto; vertical-align:middle;';
+
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = `icon${size}.png`;
+  a.textContent = `Download icon${size}.png`;
+  a.style.cssText = 'font-size:16px; vertical-align:middle;';
+
+  div.appendChild(img);
+  div.appendChild(a);
+  output.appendChild(div);
+});
+</script>
+</body>
+</html>
