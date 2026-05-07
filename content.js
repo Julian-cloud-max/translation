@@ -15,15 +15,29 @@ const INLINE_TAGS = new Set([
 
 const SKIP_TAGS = new Set([
   'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT',
-  'BUTTON', 'CODE', 'KBD', 'SAMP', 'VAR', 'SVG', 'MATH',
+  'CODE', 'KBD', 'SAMP', 'VAR', 'SVG', 'MATH',
   'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'IFRAME', 'OBJECT', 'EMBED',
   'BR', 'HR', 'WBR'
+]);
+
+const ICON_CLASSES = new Set([
+  'material-icons', 'material-icons-outlined', 'material-icons-round', 'material-icons-sharp',
+  'glyphicon', 'fa', 'fas', 'far', 'fal', 'fad', 'fab',
+  'icon', 'iconfont', 'iconfont-icon'
 ]);
 
 const MIN_TEXT_LENGTH = 2;
 const MAX_CHILDREN = 100;
 const LAZY_ROOT_MARGIN = '320px 0px';
 const LAZY_BATCH_DELAY = 120;
+
+function isIconElement(el) {
+  if (!el || !el.classList) return false;
+  for (const cls of el.classList) {
+    if (ICON_CLASSES.has(cls)) return true;
+  }
+  return false;
+}
 let isTranslated = false;
 let translatedElements = [];
 let selectionBubble = null;
@@ -174,10 +188,14 @@ function collectSegments() {
         const parent = node.parentElement;
         if (!parent) return NodeFilter.FILTER_REJECT;
 
+        // Skip icon font elements
+        if (isIconElement(parent)) return NodeFilter.FILTER_REJECT;
+
         // Skip unwanted tags
         let el = parent;
         while (el && el !== document.body) {
           if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+          if (isIconElement(el)) return NodeFilter.FILTER_REJECT;
           el = el.parentElement;
         }
 
@@ -1017,9 +1035,13 @@ function collectSegmentsFromNodes(nodeList) {
           const parent = textNode.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
 
+          // Skip icon font elements
+          if (isIconElement(parent)) return NodeFilter.FILTER_REJECT;
+
           let el = parent;
           while (el && el !== node && el !== document.body) {
             if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+            if (isIconElement(el)) return NodeFilter.FILTER_REJECT;
             el = el.parentElement;
           }
 

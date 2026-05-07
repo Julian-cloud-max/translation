@@ -91,6 +91,29 @@
   color: #3730a3 !important;
 }
 
+/* Inherit parent color inside buttons, links, and interactive elements */
+button > .qt-translation,
+a > .qt-translation,
+[role="button"] > .qt-translation,
+[role="link"] > .qt-translation,
+button .qt-translation,
+a .qt-translation,
+[role="button"] .qt-translation,
+[role="link"] .qt-translation {
+  color: inherit !important;
+}
+
+button > .qt-translation:hover,
+a > .qt-translation:hover,
+[role="button"] > .qt-translation:hover,
+[role="link"] > .qt-translation:hover,
+button .qt-translation:hover,
+a .qt-translation:hover,
+[role="button"] .qt-translation:hover,
+[role="link"] .qt-translation:hover {
+  color: inherit !important;
+}
+
 /* === Elements with translation appended INSIDE (strict containers: td, li, etc.) === */
 .qt-original.qt-inner {
   overflow: visible !important;
@@ -238,6 +261,26 @@
   }
   .qt-translation:hover {
     color: #c7d2fe !important;
+  }
+  button > .qt-translation,
+  a > .qt-translation,
+  [role="button"] > .qt-translation,
+  [role="link"] > .qt-translation,
+  button .qt-translation,
+  a .qt-translation,
+  [role="button"] .qt-translation,
+  [role="link"] .qt-translation {
+    color: inherit !important;
+  }
+  button > .qt-translation:hover,
+  a > .qt-translation:hover,
+  [role="button"] > .qt-translation:hover,
+  [role="link"] > .qt-translation:hover,
+  button .qt-translation:hover,
+  a .qt-translation:hover,
+  [role="button"] .qt-translation:hover,
+  [role="link"] .qt-translation:hover {
+    color: inherit !important;
   }
   .qt-translation-error {
     color: #fca5a5 !important;
