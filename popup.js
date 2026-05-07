@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const targetLangSelect = document.getElementById('targetLang');
   const translateModeSelect = document.getElementById('translateMode');
   const selectionTranslateEnabledInput = document.getElementById('selectionTranslateEnabled');
+  const autoTranslateInput = document.getElementById('autoTranslate');
   const apiKeyInput = document.getElementById('apiKey');
   const deepseekConfig = document.getElementById('deepseekConfig');
   const statusText = document.getElementById('statusText');
@@ -17,13 +18,15 @@ document.addEventListener('DOMContentLoaded', () => {
     'targetLang',
     'translateMode',
     'selectionTranslateEnabled',
-    'apiKey'
+    'apiKey',
+    'autoTranslate'
   ], (data) => {
     if (data.provider) providerSelect.value = data.provider;
     if (data.targetLang) targetLangSelect.value = data.targetLang;
     if (data.translateMode) translateModeSelect.value = data.translateMode;
     selectionTranslateEnabledInput.checked = data.selectionTranslateEnabled !== false;
     if (data.apiKey) apiKeyInput.value = data.apiKey;
+    autoTranslateInput.checked = data.autoTranslate === true;
     toggleDeepseekConfig();
   });
 
@@ -43,6 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   selectionTranslateEnabledInput.addEventListener('change', () => {
     chrome.storage.local.set({ selectionTranslateEnabled: selectionTranslateEnabledInput.checked });
+  });
+
+  autoTranslateInput.addEventListener('change', () => {
+    chrome.storage.local.set({ autoTranslate: autoTranslateInput.checked });
   });
 
   apiKeyInput.addEventListener('change', () => {
@@ -107,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res && res.translated) {
         btnRestore.disabled = false;
         btnTranslate.textContent = '重新翻译';
-        statusText.textContent = '已翻译';
+        statusText.textContent = res.autoTranslated ? '已自动翻译' : '已翻译';
       }
     });
   });

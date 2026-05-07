@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const translationStyleSelect = document.getElementById('translationStyle');
   const translateModeSelect = document.getElementById('translateMode');
   const selectionTranslateEnabledInput = document.getElementById('selectionTranslateEnabled');
+  const autoTranslateInput = document.getElementById('autoTranslate');
   const customStyleInput = document.getElementById('customStyle');
   const glossaryInput = document.getElementById('glossary');
   const siteRuleModeSelect = document.getElementById('siteRuleMode');
@@ -24,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'translationStyle',
     'translateMode',
     'selectionTranslateEnabled',
+    'autoTranslate',
     'customStyle',
     'glossary',
     'siteRuleMode',
@@ -36,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.translationStyle) translationStyleSelect.value = data.translationStyle;
     if (data.translateMode) translateModeSelect.value = data.translateMode;
     selectionTranslateEnabledInput.checked = data.selectionTranslateEnabled !== false;
+    autoTranslateInput.checked = data.autoTranslate === true;
     if (data.customStyle) customStyleInput.value = data.customStyle;
     if (data.glossary) glossaryInput.value = data.glossary;
     if (data.siteRuleMode) siteRuleModeSelect.value = data.siteRuleMode;
@@ -58,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
       translationStyle: translationStyleSelect.value,
       translateMode: translateModeSelect.value,
       selectionTranslateEnabled: selectionTranslateEnabledInput.checked,
+      autoTranslate: autoTranslateInput.checked,
       customStyle: customStyleInput.value,
       glossary: glossaryInput.value,
       siteRuleMode: siteRuleModeSelect.value,

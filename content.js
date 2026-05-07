@@ -39,11 +39,16 @@ let lazyQueue = [];
 let lazyQueueTimer = null;
 let lazyBusy = false;
 let lazyRunId = 0;
+let domObserver = null;
+let mutationDebounceTimer = null;
+let pendingMutationNodes = [];
+const MUTATION_DEBOUNCE_MS = 600;
 
 // Prevent duplicate injection
 if (!window.__qtContentScriptLoaded) {
   window.__qtContentScriptLoaded = true;
   initSelectionTranslate();
+  initAutoTranslate();
 
   // Listen for messages from popup
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -66,7 +71,7 @@ if (!window.__qtContentScriptLoaded) {
     }
 
     if (msg.type === 'getStatus') {
-      sendResponse({ translated: isTranslated });
+      sendResponse({ translated: isTranslated, autoTranslated: isTranslated && currentTranslateSettings?.autoTranslate });
       return false;
     }
   });
@@ -133,6 +138,7 @@ async function doTranslate(provider, targetLang, apiKey, translateMode) {
   }
 
   isTranslated = true;
+  startMutationObserver();
   return {
     success: true,
     count: inserted,
@@ -404,6 +410,7 @@ function updateTranslatedElement(original, translation) {
 // Restore original page (remove translations)
 function doRestore() {
   disconnectLazyObserver();
+  stopMutationObserver();
   for (const { original, translation, originalWrap } of translatedElements) {
     try {
       translation.remove();
@@ -870,7 +877,8 @@ function getTranslationSettings() {
       'glossary',
       'customStyle',
       'siteRuleMode',
-      'siteRules'
+      'siteRules',
+      'autoTranslate'
     ], data => {
       resolve({
         provider: data.provider || 'google',
@@ -881,7 +889,8 @@ function getTranslationSettings() {
         glossary: data.glossary || '',
         customStyle: data.customStyle || '',
         siteRuleMode: data.siteRuleMode || 'blacklist',
-        siteRules: data.siteRules || ''
+        siteRules: data.siteRules || '',
+        autoTranslate: data.autoTranslate === true
       });
     });
   });
@@ -911,4 +920,209 @@ function parseSiteRules(value) {
     .split(/\r?\n|,/)
     .map(item => item.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
     .filter(Boolean);
+}
+
+// Auto-translate on page load
+async function initAutoTranslate() {
+  if (location.protocol === 'chrome:' || location.protocol === 'about:' ||
+      location.protocol === 'chrome-extension:' || location.protocol === 'edge:') {
+    return;
+  }
+
+  const settings = await getTranslationSettings();
+  if (!settings.autoTranslate) return;
+
+  const sitePolicy = await getSitePolicy();
+  if (!sitePolicy.allowed) return;
+
+  await new Promise(resolve => setTimeout(resolve, 800));
+  if (!document.body) return;
+
+  const result = await doTranslate(
+    settings.provider,
+    settings.targetLang,
+    settings.apiKey,
+    settings.translateMode
+  );
+
+  if (result.success) {
+    startMutationObserver();
+  }
+}
+
+// MutationObserver for SPA / dynamic content
+function startMutationObserver() {
+  stopMutationObserver();
+  pendingMutationNodes = [];
+
+  domObserver = new MutationObserver((mutations) => {
+    if (!isTranslated || !currentTranslateSettings) {
+      stopMutationObserver();
+      return;
+    }
+
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node instanceof Element) {
+          pendingMutationNodes.push(node);
+        }
+      }
+    }
+
+    if (pendingMutationNodes.length === 0) return;
+
+    if (mutationDebounceTimer) {
+      clearTimeout(mutationDebounceTimer);
+    }
+    mutationDebounceTimer = setTimeout(() => {
+      mutationDebounceTimer = null;
+      processMutations();
+    }, MUTATION_DEBOUNCE_MS);
+  });
+
+  domObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+}
+
+function stopMutationObserver() {
+  if (domObserver) {
+    domObserver.disconnect();
+    domObserver = null;
+  }
+  if (mutationDebounceTimer) {
+    clearTimeout(mutationDebounceTimer);
+    mutationDebounceTimer = null;
+  }
+  pendingMutationNodes = [];
+}
+
+function collectSegmentsFromNodes(nodeList) {
+  const segments = [];
+  const processed = new Set();
+
+  for (const node of nodeList) {
+    if (node.closest('.qt-translation, .qt-selection-bubble')) continue;
+    if (node.classList.contains('qt-translation')) continue;
+    if (node.classList.contains('qt-selection-bubble')) continue;
+
+    const walker = document.createTreeWalker(
+      node,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(textNode) {
+          const text = textNode.textContent;
+          if (!text || !String(text).trim()) return NodeFilter.FILTER_SKIP;
+          const parent = textNode.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+
+          let el = parent;
+          while (el && el !== node && el !== document.body) {
+            if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+            el = el.parentElement;
+          }
+
+          if (parent.closest && parent.closest('.qt-translation, .qt-selection-bubble')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+
+    const textNodes = [];
+    let textNode;
+    while (textNode = walker.nextNode()) {
+      textNodes.push(textNode);
+    }
+
+    for (const tn of textNodes) {
+      const target = findTranslatableAncestor(tn);
+      if (!target || processed.has(target)) continue;
+
+      if (target.querySelector(':scope > .qt-translation')) continue;
+
+      const rawText = target.innerText !== undefined ? target.innerText : target.textContent;
+      const text = (rawText || '').trim();
+      if (text.length < MIN_TEXT_LENGTH) continue;
+
+      processed.add(target);
+      segments.push({ element: target, text });
+    }
+  }
+
+  return segments;
+}
+
+async function processMutations() {
+  if (!isTranslated || !currentTranslateSettings) return;
+
+  const nodes = pendingMutationNodes;
+  pendingMutationNodes = [];
+
+  // Deduplicate: keep only top-level nodes, remove descendants of others
+  const uniqueNodes = [];
+  for (const node of nodes) {
+    if (!node.isConnected) continue;
+    if (node.classList?.contains('qt-translation') ||
+        node.classList?.contains('qt-selection-bubble') ||
+        node.closest('.qt-translation, .qt-selection-bubble')) {
+      continue;
+    }
+
+    const isDescendant = uniqueNodes.some(existing =>
+      existing.contains(node) && existing !== node
+    );
+    if (isDescendant) continue;
+
+    for (let i = uniqueNodes.length - 1; i >= 0; i--) {
+      if (node.contains(uniqueNodes[i]) && node !== uniqueNodes[i]) {
+        uniqueNodes.splice(i, 1);
+      }
+    }
+
+    uniqueNodes.push(node);
+  }
+
+  if (uniqueNodes.length === 0) return;
+
+  // Clean up stale references
+  translatedElements = translatedElements.filter(
+    entry => entry.original && entry.original.isConnected
+  );
+
+  const segments = collectSegmentsFromNodes(uniqueNodes);
+  if (segments.length === 0) return;
+
+  const mode = currentTranslateSettings.translateMode;
+  const useLazy = mode === 'lazy' && 'IntersectionObserver' in window;
+
+  if (!lazySettings) {
+    lazySettings = currentTranslateSettings;
+  }
+
+  if (useLazy) {
+    const nearViewport = segments.filter(s => isElementNearViewport(s.element));
+    const offScreen = segments.filter(s => !isElementNearViewport(s.element));
+
+    if (nearViewport.length > 0) {
+      enqueueLazySegments(nearViewport);
+    }
+
+    if (offScreen.length > 0) {
+      if (lazyObserver) {
+        for (const segment of offScreen) {
+          segment.element.__qtLazySegment = segment;
+          segment.element.setAttribute('data-qt-lazy', 'true');
+          lazyObserver.observe(segment.element);
+        }
+      } else {
+        setupLazyTranslation(offScreen, currentTranslateSettings);
+      }
+    }
+  } else {
+    enqueueLazySegments(segments);
+  }
 }
