@@ -47,6 +47,7 @@ let selectionBubbleDragging = false;
 let selectionBubbleDragTarget = null;
 let selectionBubbleDragOffset = { x: 0, y: 0 };
 let currentTranslateSettings = null;
+let translateStartUrl = '';
 let lazyObserver = null;
 let lazySettings = null;
 let lazyQueue = [];
@@ -152,6 +153,7 @@ async function doTranslate(provider, targetLang, apiKey, translateMode) {
   }
 
   isTranslated = true;
+  translateStartUrl = location.href;
   startMutationObserver();
   return {
     success: true,
@@ -1080,6 +1082,17 @@ function collectSegmentsFromNodes(nodeList) {
 
 async function processMutations() {
   if (!isTranslated || !currentTranslateSettings) return;
+
+  // Detect SPA navigation: if URL changed and auto-translate is off, stop translating
+  if (location.href !== translateStartUrl) {
+    const settings = await getTranslationSettings();
+    if (!settings.autoTranslate) {
+      doRestore();
+      return;
+    }
+    // Auto-translate is on, update the tracked URL for further navigation
+    translateStartUrl = location.href;
+  }
 
   const nodes = pendingMutationNodes;
   pendingMutationNodes = [];
