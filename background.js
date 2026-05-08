@@ -1,6 +1,10 @@
 // Background service worker - handles translation API calls
 
-const GOOGLE_BATCH_SIZE = 10;
+const GOOGLE_BATCH_SIZE = 5;
+const GOOGLE_CONCURRENCY = 2;
+const GOOGLE_DELAY_MS = 300;
+const GOOGLE_MAX_RETRIES = 3;
+const GOOGLE_BASE_DELAY_MS = 1000;
 const DEEPSEEK_BATCH_SIZE = 15;
 const CACHE_PREFIX = 'qt_cache:';
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -151,32 +155,38 @@ async function clearTranslationCache() {
 
 // Google Translate (Free) - uses the public endpoint
 async function translateGoogle(segments, targetLang, sender) {
-  const results = new Array(segments.length);
-  const batches = chunkArray(segments, GOOGLE_BATCH_SIZE);
+  const results = new Array(segments.length).fill(null);
+  let completed = 0;
 
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    const promises = batch.map((seg, idx) => {
-      const originalIdx = i * GOOGLE_BATCH_SIZE + idx;
+  for (let i = 0; i < segments.length; i += GOOGLE_CONCURRENCY) {
+    const chunk = segments.slice(i, i + GOOGLE_CONCURRENCY);
+    const promises = chunk.map((seg, idx) => {
+      const originalIdx = i + idx;
       return translateGoogleSingle(seg.text, targetLang)
         .then(translated => {
           results[originalIdx] = translated;
-          // Send progress
-          const done = results.filter(Boolean).length;
-          sendProgress(sender, `${done}/${segments.length}`);
+          completed++;
+          sendProgress(sender, `${completed}/${segments.length}`);
         })
         .catch(err => {
           results[originalIdx] = `[Translation failed: ${err.message}]`;
+          completed++;
+          sendProgress(sender, `${completed}/${segments.length}`);
         });
     });
 
     await Promise.all(promises);
+
+    // Delay between chunks to avoid rate limiting
+    if (i + GOOGLE_CONCURRENCY < segments.length) {
+      await sleep(GOOGLE_DELAY_MS);
+    }
   }
 
   return results;
 }
 
-async function translateGoogleSingle(text, targetLang) {
+async function translateGoogleSingle(text, targetLang, retryCount = 0) {
   const url = 'https://translate.googleapis.com/translate_a/single';
   const params = new URLSearchParams({
     client: 'gtx',
@@ -188,11 +198,15 @@ async function translateGoogleSingle(text, targetLang) {
 
   const response = await fetch(`${url}?${params}`);
   if (!response.ok) {
+    if ((response.status === 429 || response.status === 503) && retryCount < GOOGLE_MAX_RETRIES) {
+      const delay = GOOGLE_BASE_DELAY_MS * Math.pow(2, retryCount) + Math.random() * 500;
+      await sleep(delay);
+      return translateGoogleSingle(text, targetLang, retryCount + 1);
+    }
     throw new Error(`HTTP ${response.status}`);
   }
 
   const data = await response.json();
-  // Google returns array of arrays: [[translated_text, original_text, ...], ...]
   if (data && data[0]) {
     return data[0].map(item => item[0]).join('');
   }
@@ -375,6 +389,11 @@ function sendProgress(sender, text) {
   } catch (e) {
     // Popup may be closed, ignore
   }
+}
+
+// Utility: sleep
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Utility: chunk array
