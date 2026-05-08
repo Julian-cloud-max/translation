@@ -91,6 +91,45 @@
   color: #3730a3 !important;
 }
 
+/* Style mode: inherit ALL text styles from original element */
+.qt-style-inherit {
+  color: inherit !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  font-style: inherit !important;
+  line-height: inherit !important;
+  text-decoration: inherit !important;
+  text-transform: inherit !important;
+  letter-spacing: inherit !important;
+  text-indent: inherit !important;
+  white-space: inherit !important;
+  word-break: inherit !important;
+  word-wrap: inherit !important;
+  overflow-wrap: inherit !important;
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.qt-style-inherit:hover {
+  color: inherit !important;
+  text-decoration: inherit !important;
+}
+.qt-style-inherit > .qt-translation-text {
+  white-space: inherit !important;
+  word-break: inherit !important;
+  word-wrap: inherit !important;
+}
+
+/* Color mode: custom color via CSS variable */
+.qt-color-custom {
+  color: var(--qt-color) !important;
+}
+.qt-color-custom:hover {
+  color: var(--qt-color) !important;
+  opacity: 0.8;
+}
+
 /* Inherit parent color inside buttons, links, and interactive elements */
 button > .qt-translation,
 a > .qt-translation,
@@ -261,6 +300,41 @@ a .qt-translation:hover,
   }
   .qt-translation:hover {
     color: #c7d2fe !important;
+  }
+  .qt-style-inherit {
+    color: inherit !important;
+    font-family: inherit !important;
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    font-style: inherit !important;
+    line-height: inherit !important;
+    text-decoration: inherit !important;
+    text-transform: inherit !important;
+    letter-spacing: inherit !important;
+    text-indent: inherit !important;
+    white-space: inherit !important;
+    word-break: inherit !important;
+    word-wrap: inherit !important;
+    overflow-wrap: inherit !important;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .qt-style-inherit:hover {
+    color: inherit !important;
+    text-decoration: inherit !important;
+  }
+  .qt-style-inherit > .qt-translation-text {
+    white-space: inherit !important;
+    word-break: inherit !important;
+    word-wrap: inherit !important;
+  }
+  .qt-color-custom {
+    color: var(--qt-color) !important;
+  }
+  .qt-color-custom:hover {
+    color: var(--qt-color) !important;
+    opacity: 0.8;
   }
   button > .qt-translation,
   a > .qt-translation,

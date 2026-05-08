@@ -5,6 +5,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const sourceLangSelect = document.getElementById('sourceLang');
   const translationStyleSelect = document.getElementById('translationStyle');
   const translateModeSelect = document.getElementById('translateMode');
+  const translationColorModeSelect = document.getElementById('translationColorMode');
+  const translationColorInput = document.getElementById('translationColor');
+  const translationColorHex = document.getElementById('translationColorHex');
+  const customColorField = document.getElementById('customColorField');
   const selectionTranslateEnabledInput = document.getElementById('selectionTranslateEnabled');
   const autoTranslateInput = document.getElementById('autoTranslate');
   const customStyleInput = document.getElementById('customStyle');
@@ -24,6 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'sourceLang',
     'translationStyle',
     'translateMode',
+    'translationColorMode',
+    'translationColor',
     'selectionTranslateEnabled',
     'autoTranslate',
     'customStyle',
@@ -37,6 +43,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.sourceLang) sourceLangSelect.value = data.sourceLang;
     if (data.translationStyle) translationStyleSelect.value = data.translationStyle;
     if (data.translateMode) translateModeSelect.value = data.translateMode;
+    if (data.translationColorMode) translationColorModeSelect.value = data.translationColorMode;
+    if (data.translationColor) translationColorInput.value = data.translationColor;
+    if (data.translationColor) translationColorHex.textContent = data.translationColor;
+    toggleCustomColorField();
     selectionTranslateEnabledInput.checked = data.selectionTranslateEnabled !== false;
     autoTranslateInput.checked = data.autoTranslate === true;
     if (data.customStyle) customStyleInput.value = data.customStyle;
@@ -47,9 +57,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   providerSelect.addEventListener('change', toggleDeepseekSettings);
+  translationColorModeSelect.addEventListener('change', toggleCustomColorField);
+  translationColorInput.addEventListener('input', () => {
+    translationColorHex.textContent = translationColorInput.value;
+  });
 
   function toggleDeepseekSettings() {
     deepseekSettings.style.display = providerSelect.value === 'deepseek' ? 'block' : 'none';
+  }
+
+  function toggleCustomColorField() {
+    customColorField.style.display = translationColorModeSelect.value === 'custom' ? 'block' : 'none';
   }
 
   btnSave.addEventListener('click', () => {
@@ -60,6 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
       sourceLang: sourceLangSelect.value,
       translationStyle: translationStyleSelect.value,
       translateMode: translateModeSelect.value,
+      translationColorMode: translationColorModeSelect.value,
+      translationColor: translationColorInput.value,
       selectionTranslateEnabled: selectionTranslateEnabledInput.checked,
       autoTranslate: autoTranslateInput.checked,
       customStyle: customStyleInput.value,

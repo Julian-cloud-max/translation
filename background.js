@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handleTranslate(msg, sender) {
-  const { segments, provider, targetLang, apiKey, glossary = '', customStyle = '' } = msg;
+  const { segments, provider, targetLang, apiKey, glossary = '', customStyle = '', splitDelimiter = '' } = msg;
 
   if (!segments || segments.length === 0) {
     return { success: false, error: 'No translatable content found' };
@@ -45,7 +45,7 @@ async function handleTranslate(msg, sender) {
       targetLang,
       apiKey,
       sender,
-      { glossary, customStyle }
+      { glossary, customStyle, splitDelimiter }
     );
     return { success: true, translations };
   } catch (err) {
@@ -242,7 +242,10 @@ async function translateDeepseek(segments, targetLang, apiKey, sender, options =
     const styleInstruction = styleText
       ? `\nFollow this translation style requirement:\n${styleText}`
       : '';
-    const prompt = `Translate each item in this JSON array to ${langName}. Return ONLY valid JSON in this exact shape: {"translations":[{"id":1,"text":"translated text"}]}. Preserve paragraph breaks and line breaks inside each text field. If an item is already in ${langName}, return it unchanged.${glossaryInstruction}${styleInstruction}\n\n${JSON.stringify(payload)}`;
+    const splitInstruction = options.splitDelimiter
+      ? `\nIf an item's text contains the exact delimiter ${options.splitDelimiter}, preserve every occurrence of that delimiter exactly and in the same order in your output. Translate each fragment between delimiters separately, but do not add, remove, rename, translate, or reorder the delimiter.`
+      : '';
+    const prompt = `Translate each item in this JSON array to ${langName}. Return ONLY valid JSON in this exact shape: {"translations":[{"id":1,"text":"translated text"}]}. Preserve paragraph breaks and line breaks inside each text field. If an item is already in ${langName}, return it unchanged.${glossaryInstruction}${styleInstruction}${splitInstruction}\n\n${JSON.stringify(payload)}`;
 
     try {
       const response = await fetch('https://api.deepseek.com/chat/completions', {

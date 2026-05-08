@@ -30,6 +30,73 @@ const MIN_TEXT_LENGTH = 2;
 const MAX_CHILDREN = 100;
 const LAZY_ROOT_MARGIN = '320px 0px';
 const LAZY_BATCH_DELAY = 120;
+const QT_TEXT_PART_DELIMITER = '[[[QT_TEXT_PART]]]';
+const INHERITED_TRANSLATION_STYLE_PROPS = [
+  'display',
+  'align-items',
+  'justify-content',
+  'gap',
+  'flex-direction',
+  'flex-wrap',
+  'color',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'font-style',
+  'line-height',
+  'letter-spacing',
+  'word-spacing',
+  'text-decoration',
+  'text-decoration-line',
+  'text-decoration-style',
+  'text-decoration-color',
+  'text-decoration-thickness',
+  'text-transform',
+  'text-indent',
+  'text-align',
+  'text-align-last',
+  'text-justify',
+  'text-shadow',
+  'text-rendering',
+  'text-orientation',
+  'direction',
+  'writing-mode',
+  'white-space',
+  'word-break',
+  'overflow-wrap',
+  'word-wrap',
+  'hyphens',
+  'vertical-align',
+  'font-variant',
+  'font-kerning',
+  'font-feature-settings',
+  '-webkit-text-stroke',
+  '-webkit-text-fill-color',
+  'background',
+  'background-color',
+  'background-image',
+  'background-size',
+  'background-position',
+  'background-repeat',
+  'border',
+  'border-top',
+  'border-right',
+  'border-bottom',
+  'border-left',
+  'border-radius',
+  'outline',
+  'box-shadow',
+  'padding',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'margin',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left'
+];
 
 function isIconElement(el) {
   if (!el || !el.classList) return false;
@@ -164,15 +231,34 @@ async function doTranslate(provider, targetLang, apiKey, translateMode) {
 }
 
 function requestTranslations(segments, settings) {
+  const replaceInPlace = shouldReplaceTextInPlace(settings);
   return chrome.runtime.sendMessage({
     type: 'translate',
-    segments: segments.map((s, i) => ({ id: i, text: s.text })),
+    splitDelimiter: replaceInPlace ? QT_TEXT_PART_DELIMITER : '',
+    segments: segments.map((s, i) => ({
+      id: i,
+      text: buildTranslationRequestText(s, settings),
+      splitParts: replaceInPlace ? (s.partTexts?.length || 0) : 0
+    })),
     provider: settings.provider,
     targetLang: settings.targetLang,
     apiKey: settings.apiKey,
     glossary: settings.glossary,
     customStyle: settings.customStyle
   });
+}
+
+function buildTranslationRequestText(segment, settings) {
+  if (!shouldReplaceTextInPlace(settings)) {
+    return segment.text;
+  }
+
+  const parts = Array.isArray(segment.partTexts) ? segment.partTexts.map(part => String(part || '')) : [];
+  if (!parts || parts.length <= 1) {
+    return segment.text;
+  }
+
+  return parts.join(QT_TEXT_PART_DELIMITER);
 }
 
 // Collect translatable text segments from the page
@@ -221,6 +307,7 @@ function collectSegments() {
   for (const textNode of textNodes) {
     const target = findTranslatableAncestor(textNode);
     if (!target || processed.has(target)) continue;
+    if (target.hasAttribute('data-qt-text-replaced')) continue;
 
     // Use textContent as fallback (innerText is undefined on non-HTMLElement)
     const rawText = target.innerText !== undefined ? target.innerText : target.textContent;
@@ -228,7 +315,7 @@ function collectSegments() {
     if (text.length < MIN_TEXT_LENGTH) continue;
 
     processed.add(target);
-    segments.push({ element: target, text });
+    segments.push(createSegment(target, text));
   }
 
   return segments;
@@ -312,6 +399,8 @@ function insertTranslations(segments, translations, options = {}) {
     translatedElements = [];
   }
   let inserted = 0;
+  const settings = options.settings || currentTranslateSettings;
+  const replaceInPlace = shouldReplaceTextInPlace(settings);
 
   for (let i = 0; i < segments.length; i++) {
     const { element } = segments[i];
@@ -319,20 +408,27 @@ function insertTranslations(segments, translations, options = {}) {
 
     try {
       if (element.querySelector(':scope > .qt-translation')) continue;
+      if (element.hasAttribute('data-qt-text-replaced')) continue;
 
       const isError = !translated ||
         translated.startsWith('[Translation failed') ||
         translated.startsWith('[DeepSeek error');
+
+      if (replaceInPlace) {
+        if (isError) continue;
+        if (!replaceElementTextInPlace(segments[i], translated, settings)) continue;
+        inserted++;
+        continue;
+      }
+
       const translationEl = createTranslationElement(
         segments[i],
         translated || '翻译失败',
         i,
         isError,
-        options.settings || currentTranslateSettings
+        settings
       );
-      const style = options.settings?.translationStyle ||
-        currentTranslateSettings?.translationStyle ||
-        'replace';
+      const style = settings?.translationStyle || 'replace';
 
       const originalWrap = style === 'replace' ? wrapOriginalContent(element) : null;
       element.classList.toggle('qt-replace-mode', style === 'replace');
@@ -352,6 +448,175 @@ function insertTranslations(segments, translations, options = {}) {
   return inserted;
 }
 
+function createSegment(element, text) {
+  const textNodes = getTextNodesForElement(element);
+  const partTexts = textNodes.map(node => node.textContent);
+  return {
+    element,
+    text,
+    textNodes,
+    partTexts
+  };
+}
+
+function shouldReplaceTextInPlace(settings) {
+  return (settings?.translationColorMode || 'default') === 'inherit';
+}
+
+function replaceElementTextInPlace(segment, translated, settings) {
+  const textNodes = segment.textNodes?.length ? segment.textNodes : getTextNodesForElement(segment.element);
+  if (textNodes.length === 0) return false;
+
+  const originalTexts = textNodes.map(node => ({
+    node,
+    text: node.textContent
+  }));
+
+  const translatedParts = splitTranslatedTextParts(translated, segment, textNodes.length);
+  if (translatedParts.length === 0) return false;
+
+  for (let i = 0; i < textNodes.length; i++) {
+    textNodes[i].textContent = translatedParts[i] || '';
+  }
+
+  const style = settings?.translationStyle || 'replace';
+  segment.element.classList.add('qt-original');
+  segment.element.classList.add('qt-inner');
+  segment.element.classList.toggle('qt-replace-mode', false);
+  segment.element.setAttribute('data-qt-style', style);
+  segment.element.setAttribute('data-qt-text-replaced', 'true');
+
+  translatedElements.push({
+    original: segment.element,
+    translation: null,
+    originalWrap: null,
+    textNodes: originalTexts,
+    replacedText: true
+  });
+
+  return true;
+}
+
+function splitTranslatedTextParts(translated, segment, expectedCount) {
+  const raw = String(translated || '');
+  if (!raw) return [];
+
+  const explicitParts = raw.includes(QT_TEXT_PART_DELIMITER)
+    ? raw.split(QT_TEXT_PART_DELIMITER).map(part => normalizeTranslatedPart(part))
+    : null;
+
+  if (explicitParts && explicitParts.length === expectedCount) {
+    return explicitParts;
+  }
+
+  if (expectedCount <= 1) {
+    return [normalizeTranslationText(raw)];
+  }
+
+  const sourceParts = Array.isArray(segment.partTexts) ? segment.partTexts : [];
+  return distributeTranslatedParts(raw, sourceParts, expectedCount);
+}
+
+function normalizeTranslatedPart(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ');
+}
+
+function distributeTranslatedParts(translated, sourceParts, expectedCount) {
+  const normalized = normalizeTranslationText(translated);
+  const weights = buildPartWeights(sourceParts, expectedCount);
+  const parts = [];
+  let cursor = 0;
+
+  for (let i = 0; i < expectedCount; i++) {
+    if (i === expectedCount - 1) {
+      parts.push(normalized.slice(cursor).trim());
+      break;
+    }
+
+    const remaining = normalized.length - cursor;
+    const remainingWeight = weights.slice(i).reduce((sum, value) => sum + value, 0) || 1;
+    const targetLength = Math.max(1, Math.round(remaining * (weights[i] / remainingWeight)));
+    const splitAt = findBestSplitIndex(normalized, cursor + targetLength, cursor, normalized.length);
+    parts.push(normalized.slice(cursor, splitAt).trim());
+    cursor = splitAt;
+  }
+
+  while (parts.length < expectedCount) {
+    parts.push('');
+  }
+
+  return parts;
+}
+
+function buildPartWeights(sourceParts, expectedCount) {
+  const weights = [];
+  for (let i = 0; i < expectedCount; i++) {
+    const text = String(sourceParts[i] || '');
+    const weight = text.replace(/\s+/g, '').length || text.length || 1;
+    weights.push(weight);
+  }
+  return weights;
+}
+
+function findBestSplitIndex(text, preferred, min, max) {
+  const clamped = Math.max(min + 1, Math.min(preferred, max - 1));
+  const boundaryPattern = /[\s,.;:!?，。；：！？、】【（）()\-]/;
+  const searchRadius = 24;
+
+  for (let offset = 0; offset <= searchRadius; offset++) {
+    const right = clamped + offset;
+    if (right < max && boundaryPattern.test(text[right])) {
+      return right + 1;
+    }
+
+    const left = clamped - offset;
+    if (left > min && boundaryPattern.test(text[left])) {
+      return left + 1;
+    }
+  }
+
+  return clamped;
+}
+
+function getTextNodesForElement(element) {
+  const textNodes = [];
+  if (!element) return textNodes;
+
+  const walker = document.createTreeWalker(
+    element,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        const text = node.textContent;
+        if (!text || !String(text).trim()) return NodeFilter.FILTER_SKIP;
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (parent.closest('.qt-translation, .qt-selection-bubble')) return NodeFilter.FILTER_REJECT;
+
+        let el = parent;
+        while (el && el !== element) {
+          if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+          if (isIconElement(el)) return NodeFilter.FILTER_REJECT;
+          el = el.parentElement;
+        }
+
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let node;
+  while (node = walker.nextNode()) {
+    textNodes.push(node);
+  }
+
+  return textNodes;
+}
+
 function createTranslationElement(segment, translated, index, isError, settings) {
   const translationEl = document.createElement('span');
   const style = settings?.translationStyle || 'replace';
@@ -359,10 +624,24 @@ function createTranslationElement(segment, translated, index, isError, settings)
   if (isError) translationEl.classList.add('qt-translation-error');
   translationEl.setAttribute('data-qt-index', index);
 
+  // Apply color mode
+  const colorMode = settings?.translationColorMode || 'default';
+  if (colorMode === 'inherit') {
+    translationEl.classList.add('qt-style-inherit');
+  } else if (colorMode === 'custom') {
+    const color = settings?.translationColor || '#4f46e5';
+    translationEl.style.setProperty('--qt-color', color, 'important');
+    translationEl.classList.add('qt-color-custom');
+  }
+
   const textEl = document.createElement('span');
   textEl.className = 'qt-translation-text';
   textEl.textContent = normalizeTranslationText(translated);
   translationEl.appendChild(textEl);
+
+  if (colorMode === 'inherit') {
+    applyOriginalStyleMirror(segment.element, translationEl, textEl);
+  }
 
   if (isError) {
     const retry = document.createElement('button');
@@ -374,6 +653,31 @@ function createTranslationElement(segment, translated, index, isError, settings)
   }
 
   return translationEl;
+}
+
+function applyOriginalStyleMirror(sourceEl, translationEl, textEl) {
+  if (!sourceEl || !translationEl || !textEl) return;
+
+  copyClassNames(sourceEl, translationEl);
+
+  const computed = window.getComputedStyle(sourceEl);
+  for (const prop of INHERITED_TRANSLATION_STYLE_PROPS) {
+    const value = computed.getPropertyValue(prop);
+    if (!value) continue;
+    translationEl.style.setProperty(prop, value, 'important');
+    textEl.style.setProperty(prop, value, 'important');
+  }
+
+  translationEl.style.setProperty('color', computed.color, 'important');
+  textEl.style.setProperty('color', computed.color, 'important');
+}
+
+function copyClassNames(sourceEl, targetEl) {
+  if (!sourceEl?.classList || !targetEl?.classList) return;
+  for (const cls of sourceEl.classList) {
+    if (!cls || cls.startsWith('qt-')) continue;
+    targetEl.classList.add(cls);
+  }
 }
 
 function wrapOriginalContent(element) {
@@ -413,8 +717,9 @@ async function retrySegment(segment, translationEl) {
       return;
     }
 
-    translationEl.className = `qt-translation qt-style-${settings.translationStyle || 'replace'}`;
-    translationEl.textContent = normalizeTranslationText(translated);
+    const replacement = createTranslationElement(segment, translated, 0, false, settings);
+    translationEl.replaceWith(replacement);
+    updateTranslatedElement(segment.element, replacement);
   } catch (err) {
     const replacement = createTranslationElement(segment, err.message || '翻译失败', 0, true, settings);
     translationEl.replaceWith(replacement);
@@ -431,9 +736,17 @@ function updateTranslatedElement(original, translation) {
 function doRestore() {
   disconnectLazyObserver();
   stopMutationObserver();
-  for (const { original, translation, originalWrap } of translatedElements) {
+  for (const { original, translation, originalWrap, textNodes, replacedText } of translatedElements) {
     try {
-      translation.remove();
+      if (replacedText && Array.isArray(textNodes)) {
+        for (const entry of textNodes) {
+          if (entry?.node?.isConnected) {
+            entry.node.textContent = entry.text;
+          }
+        }
+      }
+
+      translation?.remove();
       if (originalWrap && originalWrap.isConnected) {
         while (originalWrap.firstChild) {
           original.insertBefore(originalWrap.firstChild, originalWrap);
@@ -444,6 +757,7 @@ function doRestore() {
       original.classList.remove('qt-inner');
       original.classList.remove('qt-replace-mode');
       original.removeAttribute('data-qt-style');
+      original.removeAttribute('data-qt-text-replaced');
     } catch (e) {
       // Element may have been removed by page
     }
@@ -898,7 +1212,9 @@ function getTranslationSettings() {
       'customStyle',
       'siteRuleMode',
       'siteRules',
-      'autoTranslate'
+      'autoTranslate',
+      'translationColorMode',
+      'translationColor'
     ], data => {
       resolve({
         provider: data.provider || 'google',
@@ -910,7 +1226,9 @@ function getTranslationSettings() {
         customStyle: data.customStyle || '',
         siteRuleMode: data.siteRuleMode || 'blacklist',
         siteRules: data.siteRules || '',
-        autoTranslate: data.autoTranslate === true
+        autoTranslate: data.autoTranslate === true,
+        translationColorMode: data.translationColorMode || 'default',
+        translationColor: data.translationColor || '#4f46e5'
       });
     });
   });
@@ -1026,6 +1344,7 @@ function collectSegmentsFromNodes(nodeList) {
     if (node.closest('.qt-translation, .qt-selection-bubble')) continue;
     if (node.classList.contains('qt-translation')) continue;
     if (node.classList.contains('qt-selection-bubble')) continue;
+    if (node.hasAttribute('data-qt-text-replaced')) continue;
 
     const walker = document.createTreeWalker(
       node,
@@ -1067,13 +1386,14 @@ function collectSegmentsFromNodes(nodeList) {
       if (!target || processed.has(target)) continue;
 
       if (target.querySelector(':scope > .qt-translation')) continue;
+      if (target.hasAttribute('data-qt-text-replaced')) continue;
 
       const rawText = target.innerText !== undefined ? target.innerText : target.textContent;
       const text = (rawText || '').trim();
       if (text.length < MIN_TEXT_LENGTH) continue;
 
       processed.add(target);
-      segments.push({ element: target, text });
+      segments.push(createSegment(target, text));
     }
   }
 

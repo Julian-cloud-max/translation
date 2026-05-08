@@ -246,6 +246,23 @@
       <div class="hint">懒加载适合长页面，可以减少等待和无效请求</div>
     </div>
 
+    <div class="field">
+      <label for="translationColorMode">翻译文字颜色</label>
+      <select id="translationColorMode">
+        <option value="default">默认颜色（紫色）</option>
+        <option value="inherit">跟随原文样式</option>
+        <option value="custom">自定义颜色</option>
+      </select>
+    </div>
+
+    <div class="field" id="customColorField" style="display:none;">
+      <label for="translationColor">自定义颜色</label>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="color" id="translationColor" value="#4f46e5" style="width:42px;height:36px;padding:2px;cursor:pointer;">
+        <span id="translationColorHex" style="font-family:monospace;font-size:14px;color:#6b7280;">#4f46e5</span>
+      </div>
+    </div>
+
     <label class="checkbox-field" for="selectionTranslateEnabled">
       <input type="checkbox" id="selectionTranslateEnabled">
       <span>启用划译浮层</span>
